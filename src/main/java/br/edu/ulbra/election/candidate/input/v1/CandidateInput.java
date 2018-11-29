@@ -10,9 +10,9 @@ public class CandidateInput {
     private String name;
     @ApiModelProperty(example = "1", notes = "Candidate Party ID")
     private Long partyId;
-    @ApiModelProperty(example = "97654", notes = "Candidate Election Number")
+    @ApiModelProperty(example = "77100", notes = "Candidate Election Number")
     private Long numberElection;
-    @ApiModelProperty(example = "3", notes = "Candidate Election Id")
+    @ApiModelProperty(example = "1", notes = "Candidate Election Id")
     private Long electionId;
 
     public String getName() {

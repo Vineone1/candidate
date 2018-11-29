@@ -5,9 +5,9 @@ import br.edu.ulbra.election.candidate.output.v1.CandidateOutput;
 import br.edu.ulbra.election.candidate.output.v1.GenericOutput;
 import br.edu.ulbra.election.candidate.service.CandidateService;
 import io.swagger.annotations.ApiOperation;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -15,16 +15,16 @@ import java.util.List;
 public class CandidateApi {
 
     private final CandidateService candidateService;
-    private ArrayList<CandidateOutput> listaRetorno = new ArrayList<CandidateOutput>();
 
-    public CandidateApi(CandidateService candidateService) {
+    @Autowired
+    public CandidateApi(CandidateService candidateService){
         this.candidateService = candidateService;
     }
 
     @GetMapping("/")
     @ApiOperation(value = "Get candidates List")
     public List<CandidateOutput> getAll(){
-        return listaRetorno;
+        return candidateService.getAll();
     }
 
     @GetMapping("/{candidateId}")
@@ -33,13 +33,19 @@ public class CandidateApi {
         return candidateService.getById(candidateId);
     }
 
-    @PutMapping("/")
+    @GetMapping("/byElection/{electionId}")
+    @ApiOperation(value = "Return if exists candidate in a election")
+    public Boolean getByElection (@PathVariable Long electionId){
+        return  candidateService.getByElection(electionId);
+    }
+
+    @PostMapping("/")
     @ApiOperation(value = "Create new candidate")
     public CandidateOutput create(@RequestBody CandidateInput candidateInput){
         return candidateService.create(candidateInput);
     }
 
-    @PostMapping("/{candidateId}")
+    @PutMapping("/{candidateId}")
     @ApiOperation(value = "Update candidate")
     public CandidateOutput update(@PathVariable Long candidateId, @RequestBody CandidateInput candidateInput){
         return candidateService.update(candidateId, candidateInput);
