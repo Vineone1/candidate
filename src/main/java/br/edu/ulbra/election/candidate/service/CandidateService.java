@@ -2,7 +2,6 @@ package br.edu.ulbra.election.candidate.service;
 
 import br.edu.ulbra.election.candidate.client.ElectionClientService;
 import br.edu.ulbra.election.candidate.client.PartyClientService;
-import br.edu.ulbra.election.candidate.client.VoteClientService;
 import br.edu.ulbra.election.candidate.exception.GenericOutputException;
 import br.edu.ulbra.election.candidate.input.v1.CandidateInput;
 import br.edu.ulbra.election.candidate.model.Candidate;
@@ -23,27 +22,33 @@ public class CandidateService {
     private final CandidateRepository candidateRepository;
     private final ElectionClientService electionClientService;
     private final PartyClientService partyClientService;
-    private final VoteClientService voteClientService;
 
     private final ModelMapper modelMapper;
 
     private static final String MESSAGE_INVALID_ID = "Invalid id";
     private static final String MESSAGE_INVALID_ELECTION_ID = "Invalid Election Id";
     private static final String MESSAGE_CANDIDATE_NOT_FOUND = "Candidate not found";
-    private static final String MESSAGE_CANDIDATE_HAS_VOTES_IN_ELECTION = "Não pode deletar se a eleição ja possui votos";
-
 
     @Autowired
-    public CandidateService(CandidateRepository candidateRepository, ModelMapper modelMapper, ElectionClientService electionClientService, PartyClientService partyClientService, VoteClientService voteClientService){
+    public CandidateService(CandidateRepository candidateRepository, ModelMapper modelMapper, ElectionClientService electionClientService, PartyClientService partyClientService){
         this.candidateRepository = candidateRepository;
         this.modelMapper = modelMapper;
         this.electionClientService = electionClientService;
         this.partyClientService = partyClientService;
-        this.voteClientService = voteClientService;
     }
 
     public List<CandidateOutput> getAll(){
         List<Candidate> candidateList = (List<Candidate>)candidateRepository.findAll();
+        return candidateList.stream().map(this::toCandidateOutput).collect(Collectors.toList());
+    }
+
+    public List<CandidateOutput> getByElection(Long electionId){
+        List<Candidate> candidateList = candidateRepository.findAllByElectionId(electionId);
+        return candidateList.stream().map(this::toCandidateOutput).collect(Collectors.toList());
+    }
+
+    public List<CandidateOutput> getByParty(Long partyId){
+        List<Candidate> candidateList = candidateRepository.findAllByPartyId(partyId);
         return candidateList.stream().map(this::toCandidateOutput).collect(Collectors.toList());
     }
 
@@ -65,7 +70,7 @@ public class CandidateService {
             throw new GenericOutputException(MESSAGE_CANDIDATE_NOT_FOUND);
         }
 
-        return modelMapper.map(candidate, CandidateOutput.class);
+        return toCandidateOutput(candidate);
     }
 
     public CandidateOutput update(Long candidateId, CandidateInput candidateInput) {
@@ -79,20 +84,8 @@ public class CandidateService {
         if (candidate == null){
             throw new GenericOutputException(MESSAGE_CANDIDATE_NOT_FOUND);
         }
-        ///VALIDAR SE TEM OU NÃO VOTOS NA MESMA ELEIÇÃO DO CANDIDATO
-        Boolean achou = false;
-        try{
-            ElectionOutput electionOutput = null;
-            electionOutput = electionClientService.getById(candidateId);
-            achou = voteClientService.getByElectionAndCandidate(electionOutput.getId(), candidateId);
-        } catch (FeignException e){
-            if (e.status() == 500) {
-                throw new GenericOutputException("Feign Exception");
-            }
-        }
-        if (achou){
-            throw new GenericOutputException(MESSAGE_CANDIDATE_HAS_VOTES_IN_ELECTION);
-        }
+
+        validateIntegrity(candidate.getElectionId());
 
         candidate.setElectionId(candidateInput.getElectionId());
         candidate.setNumberElection(candidateInput.getNumberElection());
@@ -112,28 +105,28 @@ public class CandidateService {
             throw new GenericOutputException(MESSAGE_CANDIDATE_NOT_FOUND);
         }
 
-        ///VALIDAR SE TEM OU NÃO VOTOS NA MESMA ELEIÇÃO DO CANDIDATO
-        Boolean achou = false;
-        try{
-            ElectionOutput electionOutput = null;
-            electionOutput = electionClientService.getById(candidateId);
-            achou = voteClientService.getByElectionAndCandidate(electionOutput.getId(), candidateId);
-        } catch (FeignException e){
-            if (e.status() == 500) {
-                throw new GenericOutputException("Feign Exception");
-            }
-        }
-        if (achou){
-            throw new GenericOutputException(MESSAGE_CANDIDATE_HAS_VOTES_IN_ELECTION);
-        }
+        validateIntegrity(candidate.getElectionId());
+
         candidateRepository.delete(candidate);
+
         return new GenericOutput("Candidate deleted");
     }
 
     private void validateDuplicate(CandidateInput candidateInput, Long candidateId){
-        Candidate candidate = candidateRepository.findFirstByNumberElectionAndAndElectionId(candidateInput.getNumberElection(), candidateInput.getElectionId());
+        Candidate candidate = candidateRepository.findFirstByNumberElectionAndElectionId(candidateInput.getNumberElection(), candidateInput.getElectionId());
         if (candidate != null && candidate.getId() != candidateId){
             throw new GenericOutputException("Duplicate Candidate!");
+        }
+    }
+
+    private void validateIntegrity(Long electionId){
+        try {
+            ResultOutput resultOutput = electionClientService.getResultByElection(electionId);
+            if (resultOutput.getTotalVotes() > 0){
+                throw new GenericOutputException("Could not modify candidate in active elections");
+            }
+        } catch (FeignException e){
+            throw new GenericOutputException("Could not access Election Service");
         }
     }
 
@@ -162,10 +155,8 @@ public class CandidateService {
         if (candidateInput.getElectionId() == null){
             throw new GenericOutputException(MESSAGE_INVALID_ELECTION_ID);
         }
-
         try {
-            ElectionOutput electionOutput = null;
-            electionOutput = electionClientService.getById(candidateInput.getElectionId());
+            electionClientService.getById(candidateInput.getElectionId());
         } catch (FeignException e){
             if (e.status() == 500) {
                 throw new GenericOutputException(MESSAGE_INVALID_ELECTION_ID);
@@ -182,9 +173,16 @@ public class CandidateService {
         return candidateOutput;
     }
 
-    public Boolean getByElection(long id){
-        Boolean HasCandidate = candidateRepository.existsByElectionId(id);
-        return HasCandidate;
-    }
 
+    public CandidateOutput getByNumberAndElection(Long electionId, Long candidateNumber) {
+        if (electionId == null || candidateNumber == null){
+            throw new GenericOutputException("Invalid Input");
+        }
+        Candidate candidate = candidateRepository.findFirstByNumberElectionAndElectionId(candidateNumber, electionId);
+
+        if (candidate == null){
+            throw new GenericOutputException(MESSAGE_CANDIDATE_NOT_FOUND);
+        }
+        return toCandidateOutput(candidate);
+    }
 }
